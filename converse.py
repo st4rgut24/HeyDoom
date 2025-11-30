@@ -122,6 +122,7 @@ def record_audio_vad(pa_instance, vad_instance, sample_rate, frame_size):
         format=FORMAT,
         input=True,
         frames_per_buffer=frame_size,
+        input_device_index=FIXED_INPUT_DEVICE_INDEX
     )
     
     print("[VAD] Listening for command... (Speak now)")
@@ -132,12 +133,15 @@ def record_audio_vad(pa_instance, vad_instance, sample_rate, frame_size):
     
     while True:
         try:
-            pcm_data = vad_stream.read(frame_size, exception_on_overflow=False)
+            pcm_bytes_48k = vad_stream.read(frame_size, exception_on_overflow=False)
+            pcm_shorts_48k = np.frombuffer(pcm_bytes_48k, dtype=np.int16)
+            pcm_shorts_16k = downsample_audio(pcm_shorts_48k, SAMPLE_RATE, TARGET_SAMPLE_RATE)
+            pcm_data_16k_bytes = pcm_shorts_16k.tobytes()
         except IOError as e:
             print(f"[ERROR] PyAudio read error: {e}", file=sys.stderr)
             continue
 
-        is_active = vad_instance.is_speech(pcm_data, sample_rate)
+        is_active = vad_instance.is_speech(pcm_data_16k_bytes, TARGET_SAMPLE_RATE)
 
         if not is_speaking:
             ring_buffer.append(is_active)
@@ -145,10 +149,10 @@ def record_audio_vad(pa_instance, vad_instance, sample_rate, frame_size):
                 is_speaking = True
                 print("[VAD] 🗣️ Speech detected. Recording...")
                 ring_buffer.clear()
-                command_frames.append(pcm_data)
+                command_frames.append(pcm_data_16k_bytes)
         
         else:
-            command_frames.append(pcm_data)
+            command_frames.append(pcm_data_16k_bytes)
             ring_buffer.append(is_active)
                 
             if len(ring_buffer) == SILENCE_TIMEOUT_FRAMES and sum(ring_buffer) == 0:
@@ -214,8 +218,9 @@ def run_detector():
                 print("=" * 30)
                 
                 # Close the Porcupine-optimized stream before starting VAD
+                mic_stream.stop_stream()
                 mic_stream.close()
-                mic_stream.terminate()
+                mic_stream = None
                 
                 # --- ACTION: Record Command with VAD ---
                 # Re-initialize PyAudio instance before opening VAD stream
