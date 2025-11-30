@@ -7,6 +7,7 @@ from webrtcvad import Vad
 import time
 import sys
 from faster_whisper import WhisperModel # <-- NEW IMPORT
+from scipy import signal # <-- NEW IMPORT
 
 # --- CONFIGURATION ---
 # !!! IMPORTANT: Replace 'YOUR_ACCESS_KEY_HERE' with your actual Picovoice AccessKey
@@ -22,7 +23,8 @@ COMPUTE_TYPE = "int8" # Use INT8 quantization for maximum speed on CPU
 # ---------------------
 
 # --- Audio and VAD Configuration (from previous script) ---
-SAMPLE_RATE = 16000         
+SAMPLE_RATE = 48000         
+TARGET_SAMPLE_RATE = 16000   # <--- NEW VARIABLE
 CHANNELS = 1
 FORMAT = pyaudio.paInt16
 
@@ -32,7 +34,11 @@ VAD_FRAME_SIZE = int(SAMPLE_RATE * VAD_FRAME_DURATION_MS / 1000)
 
 SILENCE_TIMEOUT_FRAMES = 50 
 SPEECH_START_FRAMES = 10    
-# ---------------------
+
+PORCUPINE_FRAME_LENGTH = 512
+INPUT_FRAME_LENGTH = PORCUPINE_FRAME_LENGTH * (SAMPLE_RATE // TARGET_SAMPLE_RATE)
+FIXED_INPUT_DEVICE_INDEX = 0
+# <--- REPLACE 3 WITH YOUR ACTUAL INDEX# ---------------------
 
 # Initialize the Whisper model globally for efficiency
 # This loading process is slow, so we only do it once at startup.
@@ -46,6 +52,24 @@ except Exception as e:
     WHISPER_AHOY = None
 
 
+def downsample_audio(pcm_shorts, current_rate, target_rate):
+    """
+    Downsamples the audio array using a high-quality filter.
+    """
+    num_samples = len(pcm_shorts)
+    num_target_samples = int(round(num_samples * target_rate / current_rate))
+    
+    # Use signal.resample for high-quality downsampling
+    # 1. Convert to float32 (scipy requirement)
+    audio_float = pcm_shorts.astype(np.float32)
+    
+    # 2. Resample
+    resampled_float = signal.resample(audio_float, num_target_samples)
+    
+    # 3. Convert back to int16 (Porcupine requirement)
+    resampled_int16 = resampled_float.astype(np.int16)
+    
+    return resampled_int16
 # --- Functions ---
 
 def transcribe_command(audio_data):
@@ -162,22 +186,27 @@ def run_detector():
         # 3. Initialize PyAudio
         pa = pyaudio.PyAudio()
 
-        porcupine_frame_size = porcupine.frame_length
+        porcupine_frame_size = PORCUPINE_FRAME_LENGTH
         mic_stream = pa.open(
             rate=SAMPLE_RATE,
             channels=CHANNELS,
             format=FORMAT,
             input=True,
-            frames_per_buffer=porcupine_frame_size,
+            frames_per_buffer=INPUT_FRAME_LENGTH,
+            input_device_index=FIXED_INPUT_DEVICE_INDEX
         )
         
         print(f"\n🤖 Listening for 'Hey DOOM!'...")
         
         # 4. Main Detection Loop
         while True:
-            pcm_bytes = mic_stream.read(porcupine_frame_size, exception_on_overflow=False)
-            pcm_shorts = struct.unpack_from("h" * porcupine_frame_size, pcm_bytes)
-            keyword_index = porcupine.process(pcm_shorts)
+            pcm_bytes = mic_stream.read(INPUT_FRAME_LENGTH, exception_on_overflow=False)
+            pcm_shorts_48k = np.frombuffer(pcm_bytes, dtype=np.int16)
+
+        # 2. DOWN SAMPLE to 16 kHz
+            pcm_shorts_16k = downsample_audio(pcm_shorts_48k, SAMPLE_RATE, TARGET_SAMPLE_RATE)
+
+            keyword_index = porcupine.process(pcm_shorts_16k)
             
             if keyword_index >= 0:
                 print("\n" + "=" * 30)
@@ -208,7 +237,8 @@ def run_detector():
                     channels=CHANNELS,
                     format=FORMAT,
                     input=True,
-                    frames_per_buffer=porcupine_frame_size,
+                    frames_per_buffer=INPUT_FRAME_LENGTH,
+                    input_device_index=FIXED_INPUT_DEVICE_INDEX
                 )
                 
                 print(f"\n🤖 Listening for 'Hey DOOM!'...")
