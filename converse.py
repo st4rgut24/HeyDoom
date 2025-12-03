@@ -8,6 +8,7 @@ import time
 import sys
 from faster_whisper import WhisperModel # <-- NEW IMPORT
 from scipy import signal # <-- NEW IMPORT
+from generate_audio import generate_speech
 
 # --- CONFIGURATION ---
 # !!! IMPORTANT: Replace 'YOUR_ACCESS_KEY_HERE' with your actual Picovoice AccessKey
