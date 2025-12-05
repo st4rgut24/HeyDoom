@@ -9,6 +9,7 @@ import sys
 from faster_whisper import WhisperModel # <-- NEW IMPORT
 from scipy import signal # <-- NEW IMPORT
 from generate_audio import generate_speech
+from complete_chat import get_chat_completion
 
 # --- CONFIGURATION ---
 # !!! IMPORTANT: Replace 'YOUR_ACCESS_KEY_HERE' with your actual Picovoice AccessKey
@@ -233,6 +234,9 @@ def run_detector():
                     transcribed_text = transcribe_command(recorded_command_bytes)
                     print(f"[ASSISTANT] ✅ Transcribed: \"{transcribed_text}\"")
                     # *** ADD YOUR COMMAND FULFILLMENT LOGIC HERE ***
+                    response = get_chat_completion(transcribed_text)
+                    output_audio_file = generate_speech(response)
+                    print(f"Response saved in audio file {output_audio_file}")
                 else:
                     print("[ASSISTANT] ❌ Command not detected.")
                 

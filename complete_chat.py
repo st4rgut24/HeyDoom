@@ -42,11 +42,11 @@ except Exception as e:
     exit()
 
 
-def get_chat_completion(prompt: str, model: str):
+def get_chat_completion(prompt: str):
     """
     Calls the Open WebUI Chat Completions API with a user prompt.
     """
-    print(f"Sending prompt to model: {model}...")
+    print(f"Sending prompt to model:...")
     
     # The 'messages' array defines the conversation history.
     # For a single prompt, you only need the 'user' role message.
@@ -63,7 +63,7 @@ def get_chat_completion(prompt: str, model: str):
 
     try:
         response = client.chat.completions.create(
-            model=model,
+            model=MODEL_ID,
             messages=messages,
             # Optional parameters to control generation:
             max_tokens=250,
@@ -76,13 +76,14 @@ def get_chat_completion(prompt: str, model: str):
         return "Error: No response choices received."
 
     except Exception as e:
-        return f"An API error occurred: {e}"
+        error_message = f"Chat completion failed due to an API error. Original error: {e}"
+        raise ValueError(error_message) from e
 
 # --- Execution ---
 if __name__ == "__main__":
     user_prompt = "Explain how a star is born in two sentences."
     
-    completion_text = get_chat_completion(user_prompt, MODEL_ID)
+    completion_text = get_chat_completion(user_prompt)
     
     print("\n--- Model Response ---")
     print(completion_text)

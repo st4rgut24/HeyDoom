@@ -3,3 +3,7 @@ venv/
 .env
 
 output.mp3
+
+__pycache__/
+
+speech_test_output.mp3
