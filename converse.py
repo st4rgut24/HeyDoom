@@ -28,7 +28,7 @@ COMPUTE_TYPE = "int8" # Use INT8 quantization for maximum speed on CPU
 # --- Audio and VAD Configuration (from previous script) ---
 SAMPLE_RATE = 48000         
 TARGET_SAMPLE_RATE = 16000   # <--- NEW VARIABLE
-CHANNELS = 2
+CHANNELS = 1
 FORMAT = pyaudio.paInt16
 
 VAD_AGGRESSIVENESS = 3       
