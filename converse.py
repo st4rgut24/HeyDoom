@@ -10,6 +10,7 @@ from faster_whisper import WhisperModel # <-- NEW IMPORT
 from scipy import signal # <-- NEW IMPORT
 from generate_audio import generate_speech
 from complete_chat import get_chat_completion
+import subprocess
 
 # --- CONFIGURATION ---
 # !!! IMPORTANT: Replace 'YOUR_ACCESS_KEY_HERE' with your actual Picovoice AccessKey
@@ -27,7 +28,7 @@ COMPUTE_TYPE = "int8" # Use INT8 quantization for maximum speed on CPU
 # --- Audio and VAD Configuration (from previous script) ---
 SAMPLE_RATE = 48000         
 TARGET_SAMPLE_RATE = 16000   # <--- NEW VARIABLE
-CHANNELS = 1
+CHANNELS = 2
 FORMAT = pyaudio.paInt16
 
 VAD_AGGRESSIVENESS = 3       
@@ -53,6 +54,31 @@ except Exception as e:
     print(f"ERROR: Failed to load faster-whisper model. Check your installation/network. Details: {e}", file=sys.stderr)
     WHISPER_AHOY = None
 
+def play_audio_to_bluetooth(file_path):
+    """
+    Plays an MP3 file using the mpg123 command-line player,
+    which automatically routes the audio via the system's sound server
+    (PipeWire/PulseAudio) to the connected Bluetooth device.
+    """
+    if not file_path:
+        print("[AUDIO PLAYBACK] No file path provided.")
+        return
+
+    print(f"[AUDIO PLAYBACK] 🔊 Playing file: {file_path}")
+
+    # mpg123 -q (quiet mode) is a simple and reliable choice
+    # It will use the default system output, which should be
+    # your connected Bluetooth device.
+    command = ["mpg123", "-q", file_path]
+
+    try:
+        # Run the command and wait for it to finish
+        subprocess.run(command, check=True)
+        print("[AUDIO PLAYBACK] Playback finished.")
+    except subprocess.CalledProcessError as e:
+        print(f"[AUDIO PLAYBACK ERROR] mpg123 failed with code {e.returncode}: {e}", file=sys.stderr)
+    except FileNotFoundError:
+        print("[AUDIO PLAYBACK ERROR] mpg123 command not found. Did you install it with 'sudo apt install mpg123'?", file=sys.stderr)
 
 def downsample_audio(pcm_shorts, current_rate, target_rate):
     """
@@ -224,6 +250,9 @@ def run_detector():
                 mic_stream.close()
                 mic_stream = None
                 
+                # pa.terminate()
+                # time.sleep(0.5)
+                
                 # --- ACTION: Record Command with VAD ---
                 # Re-initialize PyAudio instance before opening VAD stream
                 pa = pyaudio.PyAudio() 
@@ -236,6 +265,7 @@ def run_detector():
                     # *** ADD YOUR COMMAND FULFILLMENT LOGIC HERE ***
                     response = get_chat_completion(transcribed_text)
                     output_audio_file = generate_speech(response)
+                    play_audio_to_bluetooth(output_audio_file)
                     print(f"Response saved in audio file {output_audio_file}")
                 else:
                     print("[ASSISTANT] ❌ Command not detected.")

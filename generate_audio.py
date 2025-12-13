@@ -15,7 +15,7 @@ API_KEY = "sk-speaches-local-key-0123456789"
 
 # client = OpenAI is REMOVED/ignored
 
-def generate_speech(text_input: str, output_filename: str = "output.mp3"):
+def generate_speech(text_input: str, output_filename: str = "audio/output.mp3"):
     """Generates audio using the Speaches API via direct HTTP request."""
     
     # 1. Prepare Request Data
