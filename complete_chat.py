@@ -22,12 +22,22 @@ load_dotenv()
 
 # --- Configuration: Access variables using os.getenv() ---
 # os.getenv() retrieves the variable's value from the environment
-OPENWEBUI_URL = os.getenv("OPENWEBUI_BASE_URL")
 OPENWEBUI_KEY = os.getenv("OPENWEBUI_API_KEY")
 MODEL_ID = os.getenv("MODEL_ID")
 
 if not OPENWEBUI_KEY:
     raise ValueError("OPENWEBUI_API_KEY not found. Check your .env file and .gitignore.")
+
+base_url = os.getenv("OPENWEBUI_BASE_URL")
+
+if base_url:
+    # 2. Use an f-string to concatenate the base URL and the fixed path
+    OPENWEBUI_URL = f"{base_url}/api"
+    
+    print(f"Generated URL: {OPENWEBUI_URL}")
+else:
+    print("WARNING: OPENWEBUI_BASE_URL environment variable is not set.")
+    # Set a default or raise an error here if the URL is mandatory
 
 try:
     client = OpenAI(

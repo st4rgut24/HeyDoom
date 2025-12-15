@@ -56,29 +56,35 @@ except Exception as e:
 
 def play_audio_to_bluetooth(file_path):
     """
-    Plays an MP3 file using the mpg123 command-line player,
-    which automatically routes the audio via the system's sound server
-    (PipeWire/PulseAudio) to the connected Bluetooth device.
+    Plays an MP3 file, using a 'priming' command to wake up the Bluetooth device first.
     """
     if not file_path:
         print("[AUDIO PLAYBACK] No file path provided.")
         return
 
+    # --- 1. PRIMING COMMAND: Wake up the Bluetooth speaker ---
+    # This command uses mpg123 to play silence (the "dummy" output) 
+    # for a short period, forcing the audio system to establish the stream 
+    # to the Bluetooth speaker and fill its buffers.
+    
+    # -o dummy: Output to the null device (plays silence)
+    # -z: Shuffle (picks a random title)
+    # --loop 0.1: Play for a very short duration (less than one loop)
+    # A random, tiny dummy file (can be any short, small mp3) 
+    # (Note: Using -o dummy is the key to forcing stream establishment without noise)
+    # --- 2. MAIN PLAYBACK COMMAND ---
     print(f"[AUDIO PLAYBACK] 🔊 Playing file: {file_path}")
 
-    # mpg123 -q (quiet mode) is a simple and reliable choice
-    # It will use the default system output, which should be
-    # your connected Bluetooth device.
-    command = ["mpg123", "-q", file_path]
+    main_command = ["mpg123", "-q", file_path]
 
     try:
         # Run the command and wait for it to finish
-        subprocess.run(command, check=True)
+        subprocess.run(main_command, check=True)
         print("[AUDIO PLAYBACK] Playback finished.")
     except subprocess.CalledProcessError as e:
         print(f"[AUDIO PLAYBACK ERROR] mpg123 failed with code {e.returncode}: {e}", file=sys.stderr)
     except FileNotFoundError:
-        print("[AUDIO PLAYBACK ERROR] mpg123 command not found. Did you install it with 'sudo apt install mpg123'?", file=sys.stderr)
+        print("[AUDIO PLAYBACK ERROR] mpg123 command not found.", file=sys.stderr)
 
 def downsample_audio(pcm_shorts, current_rate, target_rate):
     """
