@@ -7,15 +7,17 @@ from webrtcvad import Vad
 import time
 import sys
 from faster_whisper import WhisperModel # <-- NEW IMPORT
-from scipy import signal # <-- NEW IMPORT
+from scipy import signal as scipy_signal # <-- NEW IMPORT
 from generate_audio import generate_speech
 from complete_chat import get_chat_completion
 import subprocess
+import signal
 
 # --- CONFIGURATION ---
 # !!! IMPORTANT: Replace 'YOUR_ACCESS_KEY_HERE' with your actual Picovoice AccessKey
 ACCESS_KEY = 'lKeGfU6LBZ6308zlEtnVtqHFz5DWOiHeoPc5oiiG6YzWJ2yVUUXxKQ=='
 WAKE_WORD_PATH = "/home/yomama/code/Converse/Hey-Doom_en_raspberry-pi_v3_0_0.ppn"
+SHOULD_EXIT = False
 
 # --- Whisper Configuration ---
 # 'tiny.en' is recommended for the best balance of speed and accuracy on the Pi 5.
@@ -40,7 +42,9 @@ SPEECH_START_FRAMES = 10
 
 PORCUPINE_FRAME_LENGTH = 512
 INPUT_FRAME_LENGTH = PORCUPINE_FRAME_LENGTH * (SAMPLE_RATE // TARGET_SAMPLE_RATE)
-FIXED_INPUT_DEVICE_INDEX = 0
+FIXED_INPUT_DEVICE_INDEX = 1
+
+WAKE_UP_SOUND_PATH = "audio/beep2.mp3"
 # <--- REPLACE 3 WITH YOUR ACTUAL INDEX# ---------------------
 
 # Initialize the Whisper model globally for efficiency
@@ -53,6 +57,36 @@ try:
 except Exception as e:
     print(f"ERROR: Failed to load faster-whisper model. Check your installation/network. Details: {e}", file=sys.stderr)
     WHISPER_AHOY = None
+
+def signal_handler(sig, frame):
+    """Sets the exit flag when Ctrl+C (SIGINT) is received."""
+    global SHOULD_EXIT
+    print("\n[HANDLER] 🛑 Received exit signal (Ctrl+C). Cleaning up...")
+    SHOULD_EXIT = True
+
+def play_wake_up_sound(file_path):
+    """
+    Plays a short audio file to confirm wake word detection.
+    This is called when the mic_stream is still open/active.
+    """
+    if not file_path:
+        print("[WAKE-UP SOUND] No file path provided.")
+        return
+
+    # Use a simpler command as we don't have the same Bluetooth stream
+    # priming concerns here, and we want it to play quickly.
+    # The main playback function will handle the more complex TTS output.
+    simple_command = ["mpg123", "-q", file_path]
+    print(f"[WAKE-UP SOUND] 🔔 Playing wake-up sound: {file_path}")
+
+    try:
+        # Run the command and wait for it to finish (this is a non-blocking call in most simple scripts)
+        subprocess.run(simple_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[WAKE-UP SOUND] Playback finished.")
+    except subprocess.CalledProcessError as e:
+        print(f"[WAKE-UP SOUND ERROR] mpg123 failed with code {e.returncode}: {e}", file=sys.stderr)
+    except FileNotFoundError:
+        print("[WAKE-UP SOUND ERROR] mpg123 command not found.", file=sys.stderr)
 
 def play_audio_to_bluetooth(file_path):
     """
@@ -98,7 +132,7 @@ def downsample_audio(pcm_shorts, current_rate, target_rate):
     audio_float = pcm_shorts.astype(np.float32)
     
     # 2. Resample
-    resampled_float = signal.resample(audio_float, num_target_samples)
+    resampled_float = scipy_signal.resample(audio_float, num_target_samples)
     
     # 3. Convert back to int16 (Porcupine requirement)
     resampled_int16 = resampled_float.astype(np.int16)
@@ -156,7 +190,7 @@ def record_audio_vad(pa_instance, vad_instance, sample_rate, frame_size):
         format=FORMAT,
         input=True,
         frames_per_buffer=frame_size,
-        input_device_index=FIXED_INPUT_DEVICE_INDEX
+        # input_device_index=FIXED_INPUT_DEVICE_INDEX
     )
     
     print("[VAD] Listening for command... (Speak now)")
@@ -203,7 +237,9 @@ def run_detector():
     """
     Main function for the Porcupine Wake Word detection loop.
     """
-    # ... [Porcupine, PyAudio, VAD Initialization code is the same] ...
+    # Register the signal handler to catch Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler) 
+    
     porcupine = None
     pa = None
     mic_stream = None
@@ -237,8 +273,16 @@ def run_detector():
         print(f"\n🤖 Listening for 'Hey DOOM!'...")
         
         # 4. Main Detection Loop
-        while True:
-            pcm_bytes = mic_stream.read(INPUT_FRAME_LENGTH, exception_on_overflow=False)
+        while True:    
+            if SHOULD_EXIT:
+                break
+            try:
+                if SHOULD_EXIT:
+                    break                   
+                pcm_bytes = mic_stream.read(INPUT_FRAME_LENGTH, exception_on_overflow=False)
+            except KeyboardInterrupt:
+                break
+                
             pcm_shorts_48k = np.frombuffer(pcm_bytes, dtype=np.int16)
 
         # 2. DOWN SAMPLE to 16 kHz
@@ -250,7 +294,9 @@ def run_detector():
                 print("\n" + "=" * 30)
                 print(f"🎉 WAKE WORD DETECTED! Time: {time.strftime('%H:%M:%S')}")
                 print("=" * 30)
-                
+
+                play_wake_up_sound(WAKE_UP_SOUND_PATH)
+                                
                 # Close the Porcupine-optimized stream before starting VAD
                 mic_stream.stop_stream()
                 mic_stream.close()
@@ -261,7 +307,7 @@ def run_detector():
                 
                 # --- ACTION: Record Command with VAD ---
                 # Re-initialize PyAudio instance before opening VAD stream
-                pa = pyaudio.PyAudio() 
+                # pa = pyaudio.PyAudio() 
                 recorded_command_bytes = record_audio_vad(pa, vad, SAMPLE_RATE, VAD_FRAME_SIZE)
                 
                 # --- ACTION: Transcribe and Process ---
@@ -277,14 +323,14 @@ def run_detector():
                     print("[ASSISTANT] ❌ Command not detected.")
                 
                 # Re-initialize PyAudio and stream for the main loop
-                pa = pyaudio.PyAudio()
+                # pa = pyaudio.PyAudio()
                 mic_stream = pa.open(
                     rate=SAMPLE_RATE,
                     channels=CHANNELS,
                     format=FORMAT,
                     input=True,
                     frames_per_buffer=INPUT_FRAME_LENGTH,
-                    input_device_index=FIXED_INPUT_DEVICE_INDEX
+                    # input_device_index=FIXED_INPUT_DEVICE_INDEX
                 )
                 
                 print(f"\n🤖 Listening for 'Hey DOOM!'...")
